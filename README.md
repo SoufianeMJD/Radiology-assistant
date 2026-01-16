@@ -79,15 +79,35 @@ source venv/bin/activate
 
 #### Install Dependencies
 
+**IMPORTANT: Choose GPU or CPU Installation**
+
+**For GPU (NVIDIA CUDA) - Recommended for Performance:**
+
+1. **Install PyTorch with CUDA support FIRST:**
+   ```bash
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+   ```
+
+2. **Then install remaining dependencies:**
+   ```bash
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+
+3. **Verify CUDA is working:**
+   ```bash
+   python -c "import torch; print(f'CUDA Available: {torch.cuda.is_available()}')"
+   ```
+   You should see: `CUDA Available: True`
+
+**For CPU (No GPU or Testing):**
+
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-> **Note**: Installing PyTorch with CUDA may take 10-15 minutes. If you encounter issues, install PyTorch separately first:
-> ```bash
-> pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-> ```
+> **Note**: GPU installation requires Python 3.10 or 3.11 (PyTorch with CUDA doesn't support Python 3.13 yet). CPU installation works with any Python version 3.10+.
 
 ### Step 3: Frontend Setup
 

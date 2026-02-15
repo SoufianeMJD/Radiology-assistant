@@ -11,15 +11,17 @@ torch>=2.0.0
 torchvision>=0.15.0
 torchxrayvision>=1.2.0
 
-# NLP & Transformers
-transformers>=4.36.0
+# NLP & Embeddings
 sentence-transformers>=2.2.0
-accelerate>=0.25.0
-bitsandbytes>=0.41.0
 
-# RAG & Search
-faiss-cpu==1.13.2
-# faiss-gpu==1.13.2  # Uncomment for GPU-accelerated FAISS
+# LLM - Google Gemini API
+google-generativeai>=0.3.0
+
+# RAG & Search - LlamaIndex
+llama-index>=0.10.0
+llama-index-vector-stores-faiss>=0.1.0
+llama-index-embeddings-huggingface>=0.2.0
+faiss-cpu>=1.7.4
 
 # Data Processing
 pandas>=2.2.0
@@ -28,12 +30,7 @@ scikit-image>=0.24.0
 Pillow>=10.1.0
 
 # Dataset
-kagglehub==0.2.5
-
-# Tokenizer dependencies
-protobuf>=3.20.0
-tiktoken>=0.5.0
-sentencepiece>=0.1.99
+kagglehub>=0.3.4  # Latest version with dataset_download support
 
 # Utilities
 python-dotenv==1.0.0

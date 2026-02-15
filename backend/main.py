@@ -92,16 +92,21 @@ async def startup_event():
         print("\n[STARTUP] Initializing Vision Service...")
         vision_service.load_model()
         
-        # Check if RAG index exists, if not, create it
+        # Check if RAG vector store exists
         print("\n[STARTUP] Initializing RAG Service...")
         if not rag_service.load_index():
-            print("[STARTUP] No existing index found, will create on first use")
+            print("\n" + "⚠"*30)
+            print("WARNING: Vector database not found!")
+            print("Please run: python scripts/build_vector_db.py")
+            print("⚠"*30 + "\n")
+        else:
+            print("[STARTUP] ✓ RAG vector store loaded successfully")
         
         # Note: LLM is loaded on-demand to save memory
         print("\n[STARTUP] LLM will be loaded on first request")
         
         print("\n" + "="*60)
-        print("✓ All services initialized successfully")
+        print("✓ Services initialized")
         print("="*60 + "\n")
         
     except Exception as e:
@@ -131,7 +136,6 @@ async def get_status():
         "vision_model_loaded": vision_service.model is not None,
         "rag_index_loaded": rag_service.index is not None,
         "llm_model_loaded": llm_service.model is not None,
-        "rag_reports_count": rag_service.index.ntotal if rag_service.index else 0
     }
 
 
@@ -295,26 +299,7 @@ async def chat(request: ChatRequest):
         )
 
 
-@app.post("/init-rag")
-async def initialize_rag():
-    """
-    Manually trigger RAG index creation
-    Useful for initial setup or re-indexing
-    """
-    try:
-        print("\n[INIT-RAG] Starting RAG initialization...")
-        rag_service.ingest_data()
-        
-        return {
-            "success": True,
-            "message": "RAG index created successfully",
-            "reports_count": rag_service.index.ntotal
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+
 
 
 if __name__ == "__main__":

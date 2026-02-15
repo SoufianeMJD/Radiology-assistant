@@ -1,89 +1,59 @@
 """
-LLM Service - Medical Report Generation and Chat
-Uses 4-bit quantized medical LLM for memory efficiency
+LLM Service - Medical Report Generation and Chat using Google Gemini API
+Replaces local MedAlpaca model with cloud-based Gemini for improved performance
 """
-import torch
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    BitsAndBytesConfig,
-    pipeline
-)
+import os
+import google.generativeai as genai
+from dotenv import load_dotenv
 import warnings
 warnings.filterwarnings('ignore')
 
-from config import DEVICE, MODEL_CONFIG
+from config import MODEL_CONFIG
+
+# Load environment variables
+load_dotenv()
 
 
 class LLMService:
     def __init__(self):
         self.model = None
-        self.tokenizer = None
-        self.pipeline = None
-        self.device = DEVICE
         self.config = MODEL_CONFIG["llm"]
+        self.api_key = None
         
     def load_model(self):
-        """Load the medical LLM with 4-bit quantization"""
+        """Initialize Gemini API client"""
         try:
-            print("[LLM] Loading medical language model...")
+            print("[LLM] Initializing Gemini API...")
+            
+            # Get API key from environment
+            self.api_key = os.getenv("GEMINI_API_KEY")
+            if not self.api_key:
+                raise ValueError(
+                    "GEMINI_API_KEY not found in environment variables. "
+                    "Please create a .env file with your API key."
+                )
+            
+            # Configure Gemini
+            genai.configure(api_key=self.api_key)
+            
+            # Initialize model
             model_name = self.config["model_name"]
+            print(f"[LLM] Using model: {model_name}")
             
-            # Configure 4-bit quantization
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_use_double_quant=True,
+            self.model = genai.GenerativeModel(
+                model_name=model_name,
+                generation_config={
+                    "temperature": self.config["temperature"],
+                    "top_p": self.config["top_p"],
+                    "max_output_tokens": self.config["max_tokens"],
+                }
             )
             
-            # Load tokenizer
-            print(f"[LLM] Loading tokenizer for {model_name}...")
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                model_name,
-                trust_remote_code=True
-            )
-            
-            # Set padding token if not exists
-            if self.tokenizer.pad_token is None:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
-            
-            # Load model
-            print(f"[LLM] Loading model {model_name} in 4-bit...")
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                quantization_config=bnb_config,
-                device_map="auto",
-                trust_remote_code=True,
-                torch_dtype=torch.float16,
-            )
-            
-            self.model.eval()
-            print(f"[LLM] Model loaded successfully")
-            
-            # Create text generation pipeline
-            self.pipeline = pipeline(
-                "text-generation",
-                model=self.model,
-                tokenizer=self.tokenizer,
-                max_new_tokens=self.config["max_new_tokens"],
-                temperature=self.config["temperature"],
-                top_p=self.config["top_p"],
-                do_sample=True,
-                pad_token_id=self.tokenizer.eos_token_id,
-            )
-            
+            print(f"[LLM] Gemini API initialized successfully")
             return True
             
-        except RuntimeError as e:
-            if "out of memory" in str(e).lower():
-                print("[LLM] GPU OOM detected")
-                print("[LLM] Try reducing model size or using a smaller model")
-                raise MemoryError("Insufficient GPU memory for LLM. Consider using a smaller model or adding more VRAM.")
-            else:
-                raise e
         except Exception as e:
-            print(f"[LLM] Error loading model: {str(e)}")
+            print(f"[LLM] Error initializing Gemini API: {str(e)}")
             raise
     
     def construct_report_prompt(self, findings: list, rag_context: str) -> str:
@@ -104,16 +74,16 @@ class LLMService:
 **Detected Findings:**
 {findings_str}
 
-**Similar Historical Cases:**
+**Similar Historical Cases for Reference:**
 {rag_context}
 
 **Task:** Generate a structured radiology report with the following sections:
 
-1. FINDINGS: Describe the observed pathologies in detail
-2. IMPRESSION: Provide clinical interpretation
-3. RECOMMENDATIONS: Suggest follow-up actions if needed
+1. **FINDINGS**: Describe the observed pathologies in detail based on the detected findings
+2. **IMPRESSION**: Provide clinical interpretation and significance
+3. **RECOMMENDATIONS**: Suggest follow-up actions if needed
 
-Write in professional medical language. Be concise but thorough.
+Write in professional medical language. Be concise but thorough. Use markdown formatting for sections.
 
 **REPORT:**
 """
@@ -131,27 +101,25 @@ Write in professional medical language. Be concise but thorough.
         Returns:
             Formatted prompt string
         """
-        system_prompt = """You are a medical AI assistant helping doctors understand radiology reports. 
-Answer questions clearly and professionally. Base your responses on medical knowledge and the current case."""
+        system_context = """You are a medical AI assistant helping doctors understand radiology reports. 
+Answer questions clearly and professionally based on medical knowledge and the current case."""
         
         if case_context:
-            system_prompt += f"\n\n**Current Case:**\n{case_context}"
+            system_context += f"\n\n**Current Case:**\n{case_context}"
         
-        prompt = f"{system_prompt}\n\n"
-        
-        # Add conversation history without adding extra role labels
-        # (the frontend already handles showing roles)
-        for msg in history[-6:]:  # Keep last 6 messages for context
+        # Build conversation history
+        conversation = f"{system_context}\n\n"
+        for msg in history[-6:]:  # Keep last 6 messages
             content = msg.get("content", "")
-            prompt += f"{content}\n\n"
+            conversation += f"{content}\n\n"
         
-        prompt += f"{user_input}\n\nAssistant:"
+        conversation += f"{user_input}\n\nAssistant:"
         
-        return prompt
+        return conversation
     
     def generate_report(self, findings: list, rag_context: str) -> str:
         """
-        Generate a structured medical report
+        Generate a structured medical report using Gemini API
         
         Args:
             findings: Pathologies detected by vision model
@@ -167,38 +135,41 @@ Answer questions clearly and professionally. Base your responses on medical know
             # Construct prompt
             prompt = self.construct_report_prompt(findings, rag_context)
             
-            # Generate
-            print("[LLM] Generating report...")
-            outputs = self.pipeline(
-                prompt,
-                max_new_tokens=self.config["max_new_tokens"],
-                temperature=self.config["temperature"],
-                top_p=self.config["top_p"],
-            )
+            # Generate with Gemini
+            print("[LLM] Generating report with Gemini...")
+            response = self.model.generate_content(prompt)
             
-            # Extract generated text
-            generated_text = outputs[0]["generated_text"]
-            
-            # Extract only the report part (after the prompt)
-            if "**REPORT:**" in generated_text:
-                report = generated_text.split("**REPORT:**")[1].strip()
+            # Extract text from response
+            if response and response.text:
+                report = response.text.strip()
+                
+                # Remove "**REPORT:**" prefix if present
+                if "**REPORT:**" in report:
+                    report = report.split("**REPORT:**")[1].strip()
+                
+                return report
             else:
-                report = generated_text[len(prompt):].strip()
-            
-            return report
+                return "Unable to generate report. Please try again."
             
         except Exception as e:
             print(f"[LLM] Report generation error: {str(e)}")
-            raise
-        
-        finally:
-            # Clear cache
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
+            # Return a fallback report
+            findings_str = ", ".join([f"{f['name']}" for f in findings])
+            return f"""**FINDINGS:**
+The chest X-ray shows evidence of {findings_str}.
+
+**IMPRESSION:**
+Clinical correlation is recommended.
+
+**RECOMMENDATIONS:**
+Follow-up imaging may be considered based on clinical presentation.
+
+*Note: Automated report generation encountered an error. Please review findings manually.*
+"""
     
     def chat(self, history: list, user_input: str, case_context: str = "") -> str:
         """
-        Handle conversational queries about the case
+        Handle conversational queries about the case using Gemini API
         
         Args:
             history: Previous messages
@@ -215,29 +186,19 @@ Answer questions clearly and professionally. Base your responses on medical know
             # Construct prompt
             prompt = self.construct_chat_prompt(history, user_input, case_context)
             
-            # Generate
-            print("[LLM] Generating chat response...")
-            outputs = self.pipeline(
-                prompt,
-                max_new_tokens=256,  # Shorter for chat
-                temperature=0.7,
-                top_p=0.9,
-            )
+            # Generate with Gemini
+            print("[LLM] Generating chat response with Gemini...")
+            response = self.model.generate_content(prompt)
             
-            # Extract response
-            generated_text = outputs[0]["generated_text"]
-            response = generated_text[len(prompt):].strip()
-            
-            return response
+            # Extract text from response
+            if response and response.text:
+                return response.text.strip()
+            else:
+                return "I apologize, but I'm having trouble generating a response. Please try again."
             
         except Exception as e:
             print(f"[LLM] Chat error: {str(e)}")
-            raise
-        
-        finally:
-            # Clear cache
-            if self.device == "cuda":
-                torch.cuda.empty_cache()
+            return "I encountered an error processing your question. Please try rephrasing or try again."
 
 
 # Singleton instance
@@ -246,7 +207,7 @@ llm_service = LLMService()
 
 if __name__ == "__main__":
     # Test the service
-    print("Testing LLM Service...")
+    print("Testing Gemini LLM Service...")
     llm_service.load_model()
     
     # Test report generation

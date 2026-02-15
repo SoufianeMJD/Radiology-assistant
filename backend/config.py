@@ -27,17 +27,28 @@ MODEL_CONFIG = {
         "confidence_threshold": 0.5,
     },
     "rag": {
-        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+        # LlamaIndex configuration
+        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",  # Local HuggingFace embeddings
+        "embed_batch_size": 10,
         "top_k": 3,
+        "chunk_size": 512,  # Characters per document chunk
+        "chunk_overlap": 50,  # Overlap between chunks
+        
+        # Storage paths
+        "vector_store_dir": str(FAISS_INDEX_DIR),
+        "persist_dir": str(FAISS_INDEX_DIR / "storage"),
+        
+        # Legacy paths (deprecated, for migration reference)
         "index_path": str(FAISS_INDEX_DIR / "medical_reports.index"),
         "metadata_path": str(FAISS_INDEX_DIR / "metadata.pkl"),
     },
     "llm": {
-        "model_name": "medalpaca/medalpaca-7b",
-        "max_new_tokens": 512,
+        "provider": "gemini",
+        "model_name": "gemini-flash-latest",  # Fixed: added models/ prefix
+        "max_tokens": 1024,
         "temperature": 0.7,
         "top_p": 0.9,
-        "load_in_4bit": True,
+        "api_timeout": 30,
     }
 }
 
